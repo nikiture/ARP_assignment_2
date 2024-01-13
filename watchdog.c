@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <time.h>
-#include "shmem_info.h"
+#include "world_info.h"
 #include <semaphore.h>
 
 
@@ -25,7 +25,7 @@ int main (int argc, char ** argv) {
     }
 
     fd_set log_check;
-    const int proc_numb = 2;
+    const int proc_numb = 3; //drone processor has index 0, map displayer 1, server 2, 
     pid_t ID_monitored [proc_numb], proc_id;
     time_t last_resp [proc_numb], resp_time;
     struct timeval wait_time;
@@ -55,7 +55,7 @@ int main (int argc, char ** argv) {
     
 
     for (int i = 0; i < proc_numb; i++) {
-        wait_time.tv_sec = 1;
+        wait_time.tv_sec = 5;
         wait_time.tv_usec = 0;
 
         FD_ZERO (&log_check);
@@ -68,7 +68,7 @@ int main (int argc, char ** argv) {
         }
 
         if (select_res == 0) { //less processes than the expected number has responded, the watchdog terminates immediately to make the game closed by the master process
-            printf ("watchdog here!\nsome process (the %dth one) did not identify itself\n", i);
+            printf ("watchdog here!\nsome process (the one with index %d) did not identify itself\n", i);
             write (feedback_fd, "some process did not identify itself", 37);
             exit (EXIT_FAILURE);
         }
@@ -151,7 +151,7 @@ int main (int argc, char ** argv) {
                 last_resp [i] = curr_time;
             }
             else {
-                printf ("Watchdog here!\nprocess %d has missed a call\n", ID_monitored [i]);
+                printf ("Watchdog here!\nprocess %d has missed a call\n", i);
                 if (sprintf (log_feedback, "%s%d%s", "process ", ID_monitored [i], " has missed a call\n") < 0) {
                     perror ("sprintf");
                     for (int j = 0; j < proc_numb; j++) {

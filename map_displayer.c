@@ -13,7 +13,7 @@
 #include <semaphore.h>
 #include <sys/shm.h>
 #include <sys/mman.h>
-#include "shmem_info.h"
+#include "world_info.h"
 
 const char DRONE_MARKER = 'X';
 #define SEC_TO_USEC 1000000

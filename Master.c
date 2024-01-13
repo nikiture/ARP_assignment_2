@@ -14,7 +14,7 @@
 #include <sys/shm.h>
 #include <sys/mman.h>
 #include <signal.h>
-#include "shmem_info.h"
+#include "world_info.h"
 
 //const char * logfile = "process_status";
 
@@ -37,7 +37,7 @@ int main () {
 
     sem_t * kb_sem = sem_open (KB_SEM, O_CREAT, 0666, 1);
 
-    const int proc_numb = 2, proc_kons = 2;
+    const int proc_numb = 3, proc_kons = 2;
     int null_wait;
     int logfd [proc_numb];
 
@@ -49,6 +49,31 @@ int main () {
     
     
     int proc_pid [proc_numb], res;
+
+    //need to create pipes between server and processes
+    int out_fds  [proc_numb - 1] [2];
+    int in_fds [proc_numb - 1] [2];
+    for (int i = 0; i < proc_numb - 1; i++) {
+        if (pipe (out_fds [i]) < 0) {
+            perror ("pipe generation");
+            exit (EXIT_FAILURE);
+        }
+        if (pipe (in_fds [i]) < 0) {
+            perror ("pipe generation");
+            exit (EXIT_FAILURE);
+        }
+    }
+    /*for (int i = 0; i < proc_numb - 1; i++) {
+        printf ("%d %d\n", fds [i] [0], fds [i] [1]);
+    }*/
+    char server_fd [proc_numb - 1] [20];//10 is max number of digits for int
+    char process_fd [proc_numb - 1] [20]; //ons string per process
+    //in the server argument there is going to be a series of pairs of file directories, the first one is the request reception (read from)
+    for (int i = 0; i < proc_numb - 1; i++) {
+        sprintf (server_fd [i], "%d %d", out_fds [i] [0], in_fds [i] [1]);
+        //printf ("%s", server_fd [i]);
+        sprintf (process_fd [i], "%d %d", in_fds [i] [0], out_fds [i] [1]);
+    }
 
     
 
@@ -63,7 +88,7 @@ int main () {
         exit (EXIT_FAILURE);
     }
     if (proc_pid [0] == 0) {
-        char * arglist1 [] = {"./drone_dyn", NULL};
+        char * arglist1 [] = {"./drone_dyn", process_fd [0], NULL};
         if (execvp (arglist1 [0], arglist1) < 0) {
             perror ("execvp 1");
             exit (EXIT_FAILURE);
@@ -76,9 +101,21 @@ int main () {
         exit (EXIT_FAILURE);
     }
     if (proc_pid [1] == 0) {
-        char * arglist2 []= {"konsole", "-e", "./map_displayer", NULL};
+        char * arglist2 []= {"konsole", "-e", "./map_displayer", process_fd [1], NULL};
         if (execvp (arglist2 [0], arglist2) < 0) {
             perror ("execvp 3");
+            exit (EXIT_FAILURE);
+        }
+    }
+    proc_pid [2] = fork ();
+    if (proc_pid [2] < 0) {
+        perror ("fork");
+        exit (EXIT_FAILURE);
+    }
+    if (proc_pid [2] == 0) {
+        char * serverarglist [] = {/*"konsole", "-e", */"./BB_server", server_fd [0], server_fd [1], NULL};
+        if (execvp (serverarglist [0], serverarglist) < 0) {
+            perror ("exec 4");
             exit (EXIT_FAILURE);
         }
     }
@@ -96,28 +133,54 @@ int main () {
             exit (EXIT_FAILURE);
         }
     } 
+    
+    for (int i = 0; i < proc_numb -1; i++) {
+        close (out_fds [i] [0]);
+        close (in_fds [i] [1]);
+        close (out_fds [i] [1]);
+        close (in_fds [i] [0]);
+    }
+    
+    int term_child;
 
-
-    int term_child = wait (&null_wait);
-
+    term_child = waitpid (proc_pid [2], &null_wait, 0);
     if (term_child < 0) perror ("wait");
 
-    printf ("one process has terminated\n");
+    printf ("the blackboard process has terminated\n");
 
-    for (int i = 0; i < proc_numb; i++) {
+    term_child = waitpid (proc_pid [0], &null_wait, 0);
+    if (term_child < 0) perror ("wait");
+
+    printf ("the drone process has terminated\n");
+    term_child = waitpid (proc_pid [1], &null_wait, 0);
+    if (term_child < 0) perror ("wait");
+
+    printf ("the map process has terminated\n");
+
+    term_child = waitpid (res, &null_wait, 0);
+    if (term_child < 0) perror ("wait");
+
+    printf ("the watchdog process has terminated\n");    
+
+    printf ("all processes have terminated\n");
+
+
+    /*for (int i = 0; i < proc_numb; i++) {
         if (proc_pid [i] == term_child) continue;
         if (kill (proc_pid [i], SIGKILL) < 0) {
             perror ("kill");
         }
         close (logfd [i]);
-    }
-    if (res != term_child) {
-        if (kill (res, SIGKILL) < 0) {
-            perror ("kill");
-        }
-    }
+    }*/
+    //f (res != term_child) {
+    /*if (kill (res, SIGKILL) < 0) {
+        perror ("kill");
+    }*/
+    //}
     printf ("game finished!\n");
     printf ("bye!\n");
+
+    
 
     sem_unlink (MAP_SEM);
     sem_unlink (KB_SEM);

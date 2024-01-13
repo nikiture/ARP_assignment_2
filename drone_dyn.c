@@ -13,7 +13,7 @@
 #include <semaphore.h>
 #include <sys/shm.h>
 #include <sys/mman.h>
-#include "shmem_info.h"
+#include "world_info.h"
 
 double PROPULSION_STEP = 1;
 const double root2 = 1.41421;
@@ -123,7 +123,9 @@ int Get_Kb_In (int kb_in, int * quit, int * reset, double * kb_forces_x, double 
     }
     return kb_in;
 }
+/*int update_BB (double * pos, int out_fd, char * IO_msg) {*/
 int update_BB (double * pos, sem_t * map_semaph, void * pos_writer) {
+
     if ((sem_wait (map_semaph)) < 0) {
         perror ("semaph taking");
         Terminate_all (-1, -1, -1, -1, pos_writer, map_semaph, NULL, NULL, EXIT_FAILURE);
@@ -138,10 +140,12 @@ int update_BB (double * pos, sem_t * map_semaph, void * pos_writer) {
         perror ("semaph release");
         Terminate_all (-1, -1, -1, -1, pos_writer, map_semaph, NULL, NULL, EXIT_FAILURE);
     }
+    /*sprintf (IO_msg, "%lf3 %lf3", pos [0], pos [1]);
+    write (out_fd, IO_msg, strlen (IO_msg) + 1);*/
 }
 
 int main (int argc, char ** argv) {
-    
+    //in argv are the fds to communicate with server for obstacles and drone position
     signal (SIGUSR1, watchdog_req);
 
     sem_t * map_semaph = sem_open (MAP_SEM, O_CREAT, 0666, 1);
@@ -168,7 +172,7 @@ int main (int argc, char ** argv) {
         sem_close (map_semaph);
         sem_close (kb_sem);
     }
-
+    char IO_msg [80];
     struct timespec start_time;
     struct timespec end_time;
 
@@ -195,7 +199,7 @@ int main (int argc, char ** argv) {
 
     fd_wtch = open (log_file [log_id], O_WRONLY, 0666);
     if (fd_wtch < 0) {
-        perror ("open");
+        perror ("log pipe open");
         Terminate_all (-1, -1, -1, fd_wtch, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE); //null because shared memories not yet initialised
     }
 
@@ -229,7 +233,7 @@ int main (int argc, char ** argv) {
     double M, K, Eta; 
 
     if ((fd_param = open (param_file, O_RDONLY)) < 0) {
-        perror ("open: ");
+        perror ("param open");
         Terminate_all (-1, -1, fd_wtch, -1, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE);
     }
 

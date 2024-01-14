@@ -39,7 +39,7 @@ int main (int argc, char ** argv) {
             exit (EXIT_FAILURE);
         }
     }
-    sleep (4);
+    //sleep (4);
     int select_res, read_res, count;
     char proc_info [proc_numb] [10];
     char log_str [10];
@@ -80,20 +80,23 @@ int main (int argc, char ** argv) {
             perror ("pid deformatting");
             exit (EXIT_FAILURE);
         }
+        printf ("watchdog: %d\n", ID_monitored [i]);
         last_resp [i] = curr_time;
     }
 
     int syscall_res;
 
     while (1) {
-
+        printf ("watchdog here sending signal to all processes\n");
         for (int i = 0; i < proc_numb; i++) {
             if (kill (ID_monitored [i], SIGUSR1) < 0) {
                 perror ("kill");
-                exit (EXIT_FAILURE);
+                /*printf ("error on process %d\n", i);
+                sleep (20);
+                exit (EXIT_FAILURE);*/
             }
         }
-        usleep (5000); //waits a bit to make sure that all processes have written
+        usleep (10000); //waits a bit to make sure that all processes have written
        
         wait_time.tv_sec = 0;
         wait_time.tv_usec = 5000;
@@ -116,6 +119,7 @@ int main (int argc, char ** argv) {
                 for (int i = 0; i < proc_numb; i++) {
                     kill (ID_monitored [i], SIGKILL);
                 }
+                sleep (5);
                 exit (EXIT_FAILURE);
             }
             if (select_res == 0) { //setting up such that last_resp is not updated to now if no response was received
@@ -132,6 +136,7 @@ int main (int argc, char ** argv) {
                         perror ("kill");
                     }
                 }
+                sleep (5);
                 exit (EXIT_FAILURE);
             }
         }
@@ -145,6 +150,7 @@ int main (int argc, char ** argv) {
                         perror ("kill");
                     }
                 }
+                sleep (5);
                 exit (EXIT_FAILURE);
             }
             if (proc_resp [i] > 0) {
@@ -159,6 +165,7 @@ int main (int argc, char ** argv) {
                             perror ("kill");
                         }
                     }
+                    sleep (5);
                     exit (EXIT_FAILURE);
                 }
                 if (write (feedback_fd, log_feedback, sizeof (log_feedback)) < 0) {
@@ -168,6 +175,7 @@ int main (int argc, char ** argv) {
                             perror ("kill");
                         }
                     }
+                    sleep (5);
                     exit (EXIT_FAILURE);
                 }
             }
@@ -178,15 +186,16 @@ int main (int argc, char ** argv) {
             for (int i = 0; i < proc_numb; i++) {
                 kill (ID_monitored [i], SIGKILL);
             }
+            sleep (5);
             exit (EXIT_FAILURE);
         }
 
         for (int i = 0; i < proc_numb; i++) {
             if (curr_time - last_resp [i] > max_time) {
                
-                printf ("watchdog here!\nno response from process %d for more than %lf seconds\n", ID_monitored [i], max_time);
+                printf ("watchdog here!\nno response from process %d (index %d) for more than %lf seconds\n", ID_monitored [i], i, max_time);
                 printf ("killing all processes\n");
-                sprintf (log_feedback, "%s%d%s%lf%s", "no response from process ", ID_monitored [i], " for more than ", max_time, " seconds");
+                sprintf (log_feedback, "%s%d%s%d%s%lf%s", "no response from process ", ID_monitored [i], " (index) ", i, " for more than ", max_time, " seconds");
                 write (feedback_fd, log_feedback, strlen (log_feedback));
                 write (feedback_fd, "\nkilling all processes\n", 24);
                 for (int i = 0; i < proc_numb; i++) {
@@ -195,6 +204,7 @@ int main (int argc, char ** argv) {
                 for (int i = 0; i < proc_numb; i++) {
                     close (log_fd [i]);
                 }
+                sleep (5);
                 exit (EXIT_FAILURE);
             }
         }

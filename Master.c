@@ -22,18 +22,18 @@
 int main () {
     int shm_fd;
 
-    shm_fd = shm_open (MAP_ADDR, O_CREAT | O_RDWR, 0666);
+    /*shm_fd = shm_open (MAP_ADDR, O_CREAT | O_RDWR, 0666);
     if (shm_fd < 0) perror ("shm open");
 
 
-    if (ftruncate (shm_fd, 2 * sizeof (double)) < 0) perror ("truncate");
+    if (ftruncate (shm_fd, 2 * sizeof (double)) < 0) perror ("truncate");*/
 
     int sh_kb_fd = shm_open (KB_ADDR, O_CREAT | O_RDWR, 0666);
     if (sh_kb_fd < 0) perror ("shm kb open");
 
     if (ftruncate (sh_kb_fd, sizeof (int)) < 0) perror ("ftruncate");
 
-    sem_t * map_sem = sem_open (MAP_SEM, O_CREAT, 0666, 1);
+    //sem_t * map_sem = sem_open (MAP_SEM, O_CREAT, 0666, 1);
 
     sem_t * kb_sem = sem_open (KB_SEM, O_CREAT, 0666, 1);
 
@@ -126,7 +126,7 @@ int main () {
     }
 
     if (res == 0) {
-        char * konsargwtcdg [] = {"./watchdog", NULL};
+        char * konsargwtcdg [] = {"konsole", "-e", "./watchdog", NULL};
 
         if (execvp (konsargwtcdg [0], konsargwtcdg) < 0) {
             perror ("execvp 5");
@@ -134,14 +134,14 @@ int main () {
         }
     } 
     
-    for (int i = 0; i < proc_numb -1; i++) {
-        close (out_fds [i] [0]);
-        close (in_fds [i] [1]);
-        close (out_fds [i] [1]);
-        close (in_fds [i] [0]);
-    }
+    
     
     int term_child;
+
+    /*term_child = waitpid (res, &null_wait, 0);
+    if (term_child < 0) perror ("wait");
+
+    printf ("the watchdog process has terminated\n"); 
 
     term_child = waitpid (proc_pid [2], &null_wait, 0);
     if (term_child < 0) perror ("wait");
@@ -149,18 +149,42 @@ int main () {
     printf ("the blackboard process has terminated\n");
 
     term_child = waitpid (proc_pid [0], &null_wait, 0);
+    if (term_child < 0) perror ("wait");*/
+
+    //printf ("the drone process has terminated\n");
+    /*term_child = waitpid (proc_pid [1], &null_wait, 0);
     if (term_child < 0) perror ("wait");
 
-    printf ("the drone process has terminated\n");
-    term_child = waitpid (proc_pid [1], &null_wait, 0);
-    if (term_child < 0) perror ("wait");
+    printf ("the map process has terminated\n");*/
+    
+    term_child = wait (NULL);
+    printf ("one process has terminated: ");
+    
+    if (term_child == res) 
+        printf ("the watchdog;");
+    else {
+        int i;
+        for (i = 0; i < proc_numb; i++) {
+            if (term_child == proc_pid [i]) break;
+        }
+        printf ("the %d one", i);
+    }
+    
+    printf (" killing all other processes\n");
 
-    printf ("the map process has terminated\n");
+    //sleep (30);
 
-    term_child = waitpid (res, &null_wait, 0);
-    if (term_child < 0) perror ("wait");
-
-    printf ("the watchdog process has terminated\n");    
+    for (int i = 0; i < proc_numb; i++) {
+        kill (proc_pid [i], SIGKILL);
+    }
+    kill (res, SIGKILL);
+    for (int i = 0; i < proc_numb -1; i++) {
+        close (out_fds [i] [0]);
+        close (in_fds [i] [1]);
+        close (out_fds [i] [1]);
+        close (in_fds [i] [0]);
+    }
+       
 
     printf ("all processes have terminated\n");
 
@@ -180,7 +204,9 @@ int main () {
     printf ("game finished!\n");
     printf ("bye!\n");
 
-    
+    for (int i = 0; i < proc_numb; i++) {
+        close (logfd [i]);
+    }
 
     sem_unlink (MAP_SEM);
     sem_unlink (KB_SEM);

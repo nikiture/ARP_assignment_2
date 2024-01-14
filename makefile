@@ -11,21 +11,20 @@ clean_logs:
 start_build: build
 	mkdir build
 
-Master: Master.c
+Master: 
 	gcc Master.c -o build/Master
 
-drone_dyn: drone_dyn.c
+drone_dyn: 
 	gcc drone_dyn.c -o build/drone_dyn -lm -lrt -lpthread
 
-watchdog: watchdog.c 
+watchdog: 
 	gcc watchdog.c -o build/watchdog
-	
 
-map_displayer: map_displayer.c
+map_displayer: 
 	gcc map_displayer.c -o build/map_displayer -lm -lrt -lpthread -lncurses
 
-BB_server: BB_server.c
-	gcc BB_server.c -o build/BB_server
+BB_server: 
+	gcc BB_server.c -o build/BB_server  
 
 add_param: 
 	cp parameters.txt build/parameters.txt

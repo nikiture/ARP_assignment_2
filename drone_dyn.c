@@ -18,7 +18,7 @@
 double PROPULSION_STEP = 1;
 const double root2 = 1.41421;
 const int frequency = 100;               //frequency of dynamycs computation in hertz
-#define SEC_TO_USEC 1000000
+
 
 const int log_id = 0; //position in log_file where pid is written
 
@@ -33,7 +33,7 @@ void watchdog_req (int signumb) {
         int pid = getpid ();
         char logdata [10];
         
-        if (sprintf (logdata, "%d", pid) < 0) {
+        if (sprintf (logdata, "%c", 'r') < 0) {
             perror ("sprintf");
             printf ("issues formatting\n");
         }
@@ -123,10 +123,10 @@ int Get_Kb_In (int kb_in, int * quit, int * reset, double * kb_forces_x, double 
     }
     return kb_in;
 }
-/*int update_BB (double * pos, int out_fd, char * IO_msg) {*/
-int update_BB (double * pos, sem_t * map_semaph, void * pos_writer) {
+int update_BB (double * pos, int out_fd, char * IO_msg) {
+/*int update_BB (double * pos, sem_t * map_semaph, void * pos_writer) {*/
 
-    if ((sem_wait (map_semaph)) < 0) {
+    /*if ((sem_wait (map_semaph)) < 0) {
         perror ("semaph taking");
         Terminate_all (-1, -1, -1, -1, pos_writer, map_semaph, NULL, NULL, EXIT_FAILURE);
     }
@@ -139,16 +139,17 @@ int update_BB (double * pos, sem_t * map_semaph, void * pos_writer) {
     if (sem_post (map_semaph) < 0) {
         perror ("semaph release");
         Terminate_all (-1, -1, -1, -1, pos_writer, map_semaph, NULL, NULL, EXIT_FAILURE);
-    }
-    /*sprintf (IO_msg, "%lf3 %lf3", pos [0], pos [1]);
-    write (out_fd, IO_msg, strlen (IO_msg) + 1);*/
+    }*/
+    sprintf (IO_msg, "%lf3 %lf3", pos [0], pos [1]);
+    write (out_fd, IO_msg, strlen (IO_msg) + 1);
 }
 
 int main (int argc, char ** argv) {
+    printf ("dynaics: %d\n", getpid());
     //in argv are the fds to communicate with server for obstacles and drone position
     signal (SIGUSR1, watchdog_req);
 
-    sem_t * map_semaph = sem_open (MAP_SEM, O_CREAT, 0666, 1);
+    /*sem_t * map_semaph = sem_open (MAP_SEM, O_CREAT, 0666, 1);
     if (map_semaph == SEM_FAILED) {
         perror ("semaphore opening");
         exit (EXIT_FAILURE);
@@ -158,20 +159,24 @@ int main (int argc, char ** argv) {
         perror ("semaphore initialisation");
         sem_close (map_semaph); 
         exit (EXIT_FAILURE);
-    }
+    }*/
 
     sem_t * kb_sem = sem_open (KB_SEM, O_CREAT, 0666, 1);
     if (kb_sem == SEM_FAILED) {
         perror ("semaphore creation kb");
-        sem_close (map_semaph);
+        //sem_close (map_semaph);
         exit (EXIT_FAILURE);
     }
 
     if (sem_init (kb_sem, 0, 1) < 0) {
         perror ("semaphore kb creation");
-        sem_close (map_semaph);
+        //sem_close (map_semaph);
         sem_close (kb_sem);
+        exit (EXIT_FAILURE);
     }
+
+    int count = 0;
+    const int maxcount = 10;
     char IO_msg [80];
     struct timespec start_time;
     struct timespec end_time;
@@ -192,7 +197,7 @@ int main (int argc, char ** argv) {
     drone_y [0] = drone_y [1] = drone_act [1];
 
     
-    int count, syscall_res;
+    int syscall_res;
     int fd_out = 0, fd_wtch = 0, fd_param = 0; 
 
     
@@ -200,7 +205,7 @@ int main (int argc, char ** argv) {
     fd_wtch = open (log_file [log_id], O_WRONLY, 0666);
     if (fd_wtch < 0) {
         perror ("log pipe open");
-        Terminate_all (-1, -1, -1, fd_wtch, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE); //null because shared memories not yet initialised
+        Terminate_all (-1, -1, -1, fd_wtch, NULL, NULL, kb_sem, NULL, EXIT_FAILURE); //null because shared memories not yet initialised
     }
 
     char logdata [10];
@@ -209,13 +214,13 @@ int main (int argc, char ** argv) {
 
     if (sprintf (logdata, "%d", pid) < 0) {
         perror ("pid formatting");
-        Terminate_all (-1, fd_wtch, -1, -1, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE);
+        Terminate_all (-1, fd_wtch, -1, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
     }
 
     if (write (fd_wtch, logdata, sizeof (logdata)) < 0) {
         perror ("watchdog write");
 
-        Terminate_all (-1, fd_wtch, -1, -1, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE);
+        Terminate_all (-1, fd_wtch, -1, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
     }
 
     char * param_file = "parameters.txt";
@@ -234,36 +239,38 @@ int main (int argc, char ** argv) {
 
     if ((fd_param = open (param_file, O_RDONLY)) < 0) {
         perror ("param open");
-        Terminate_all (-1, -1, fd_wtch, -1, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE);
+        Terminate_all (-1, -1, fd_wtch, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
     }
 
     int kb_fd = shm_open (KB_ADDR, O_RDWR, 0666);
     if (kb_fd < 0) {
         perror ("shared memory opening kb");
-        Terminate_all (-1, fd_param, fd_wtch, -1, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE);
+        Terminate_all (-1, fd_param, fd_wtch, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
     }
 
     void * kb_ptr = mmap (0, sizeof (int), PROT_WRITE | PROT_READ, MAP_SHARED, kb_fd, 0);
     if (kb_ptr == MAP_FAILED) {
         perror ("shared memory kb mapping");
-        Terminate_all (-1, fd_wtch, fd_param, kb_fd, NULL, map_semaph, kb_sem, NULL, EXIT_FAILURE);
+        Terminate_all (-1, fd_wtch, fd_param, kb_fd, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
     }
     
     fd_out = shm_open (MAP_ADDR, O_CREAT | O_RDWR, 0666);
     if (fd_out < 0) { 
         perror ("open");
-        Terminate_all (fd_out, fd_wtch, fd_param, kb_fd, NULL, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+        Terminate_all (fd_out, fd_wtch, fd_param, kb_fd, NULL, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
     }
 
     char pos_str [2 * sizeof (double)];
     void * pos_writer = mmap (0, 2 * sizeof (double), PROT_WRITE | PROT_READ, MAP_SHARED, fd_out, 0);
     if (pos_writer == MAP_FAILED) {
         perror ("shm mapping");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, NULL, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, NULL, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
     }
     
+    int fd_serv_in, fd_serv_out;
+    sscanf (argv [1], "%d %d", &fd_serv_in, &fd_serv_out);
     
-    update_BB (drone_act, map_semaph, pos_writer);
+    //update_BB (drone_act, map_semaph, pos_writer);
 
     int reset, quit;
 
@@ -284,18 +291,18 @@ int main (int argc, char ** argv) {
     syscall_res = lseek (fd_param, 0, SEEK_SET);
     if (syscall_res < 0) {
         perror ("lseek");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
     }
     syscall_res = read (fd_param, param_str, 5 * sizeof (double));
     if (syscall_res < 0) {
         perror ("param_read 1:");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
     }
 
     syscall_res = sscanf (param_str, "%lf %lf %lf %lf %lf", &PROPULSION_STEP, &M, &K, &Eta, &ro_max);
     if (syscall_res < 0) {
         perror ("param_scan 1:");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
     }
     //multiplying by frequency instead of dividing by dt to avoid getting nan as result
     //values used in differential equation of drone
@@ -308,18 +315,18 @@ int main (int argc, char ** argv) {
 
         if (sem_wait (kb_sem) < 0) {
             perror ("kb semaphore taking");
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
         }
 
         memcopy_res = memcpy (&kb_in, kb_ptr, sizeof (int));
         if (memcopy_res == NULL) {
             perror ("shared memory kb write");
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
         }
 
         if (sem_post (kb_sem) < 0) {
             perror ("kb semaphore release");
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE);
+            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
         }
 
                                 /*forces acting on drone*/
@@ -334,7 +341,7 @@ int main (int argc, char ** argv) {
         }
 
         if (quit == 1) {
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_SUCCESS);
+            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_SUCCESS);
         }
 
         //obstacles
@@ -390,12 +397,15 @@ int main (int argc, char ** argv) {
         drone_y [0] = drone_act [1];
 
         //send to blackboard / map displayer the just computed location of the drone
-        update_BB (drone_act, map_semaph, pos_writer);
+        //update_BB (drone_act, map_semaph, pos_writer);
+        if (count == 0) update_BB (drone_act, fd_serv_out, IO_msg);
+
+        count = (count + 1) % maxcount;
         
         //wait for beginning of next period
         usleep (SEC_TO_USEC / frequency);
     }
 
-    Terminate_all (fd_out, fd_wtch, fd_param, kb_fd, pos_writer, map_semaph, kb_sem, kb_ptr, EXIT_FAILURE); //failure because program should never end here
+    Terminate_all (fd_out, fd_wtch, fd_param, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE); //failure because program should never end here
     return 0;
 }

@@ -14,3 +14,4 @@ const char * log_file [5] = {"/tmp/process_status_0", "/tmp/process_status_1", "
 
 const int obs_num = 10;
 const int targ_num = 5;
+#define SEC_TO_USEC 1000000

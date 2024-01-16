@@ -25,7 +25,7 @@ int main (int argc, char ** argv) {
     }
 
     fd_set log_check;
-    const int proc_numb = 3; //drone processor has index 0, map displayer 1, server 2, 
+    const int proc_numb = 4; //drone processor has index 0, map displayer 1, server 2, obstacle generator 3
     pid_t ID_monitored [proc_numb], proc_id;
     time_t last_resp [proc_numb], resp_time;
     struct timeval wait_time;
@@ -76,11 +76,12 @@ int main (int argc, char ** argv) {
             perror ("pid read");
             exit (EXIT_FAILURE);
         }
+        
         if (sscanf (log_str, "%d", &ID_monitored [i]) < 0) {
             perror ("pid deformatting");
             exit (EXIT_FAILURE);
         }
-        printf ("watchdog: %d\n", ID_monitored [i]);
+        //printf ("watchdog: %d\n", ID_monitored [i]);
         last_resp [i] = curr_time;
     }
 
@@ -138,6 +139,15 @@ int main (int argc, char ** argv) {
                 }
                 sleep (5);
                 exit (EXIT_FAILURE);
+            }
+            if (count == 1 && proc_info [1] [0] == 'q') { //quit message from map process
+                printf ("watchdog here! received from map process quit message, ending the monitoring of the processes\n");
+                sleep (1);
+                for (int k = 0; k < proc_numb; k++) {
+                    close (log_fd [k]);
+                    kill (ID_monitored [k], SIGKILL);
+                }
+                exit (EXIT_SUCCESS);
             }
         }
         

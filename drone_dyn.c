@@ -48,26 +48,6 @@ void watchdog_req (int signumb) {
     }
 }
 
-void Terminate_all (int fd_1, int fd_2, int fd_3, int fd_4, void * pos_writer, sem_t * map_semaph, sem_t * kb_sem, void * kb_shm, int exit_status) {
-    if (fd_1 > 0) close (fd_1);
-    if (fd_2 > 0) close (fd_2);
-    if (fd_3 > 0) close (fd_3);
-    if (fd_4 > 0) close (fd_4);
-
-    munmap (pos_writer, 2 * sizeof (double));
-
-    munmap (kb_shm, sizeof (int));
-
-    sem_close (map_semaph);
-
-    sem_close (kb_sem);
-
-    sem_unlink (KB_SEM);
-
-    sem_unlink (MAP_SEM);
-
-    exit (exit_status);
-}
 int Get_Kb_In (int kb_in, int * quit, int * reset, double * kb_forces_x, double * kb_forces_y) {
     
     *quit = 0;
@@ -125,7 +105,7 @@ int Get_Kb_In (int kb_in, int * quit, int * reset, double * kb_forces_x, double 
     return kb_in;
 }
 int update_BB (double * pos, int out_fd, int in_fd, char * IO_msg) {
-/*int update_BB (double * pos, sem_t * map_semaph, void * pos_writer) {*/
+
 
     sprintf (IO_msg, "%lf3 %lf3", pos [0], pos [1]);
 
@@ -175,8 +155,6 @@ int main (int argc, char ** argv) {
 
     signal (SIGUSR1, &watchdog_req);
     
-    
-    
     //in argv are the fds to communicate with server for obstacles and drone position and with map/kb process for the keyboard input
     
     if (argc < 3) {
@@ -221,7 +199,6 @@ int main (int argc, char ** argv) {
     fd_wtch = open (log_file [log_id], O_WRONLY, 0666);
     if (fd_wtch < 0) {
         perror ("log pipe open");
-        //Terminate_all (-1, -1, -1, fd_wtch, NULL, NULL, kb_sem, NULL, EXIT_FAILURE); //null because shared memories not yet initialised
         exit (EXIT_FAILURE);
     }
 
@@ -231,7 +208,6 @@ int main (int argc, char ** argv) {
 
     if (sprintf (logdata, "%d", pid) < 0) {
         perror ("pid formatting");
-        //Terminate_all (-1, fd_wtch, -1, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
         exit (EXIT_FAILURE);
     }
 
@@ -257,34 +233,8 @@ int main (int argc, char ** argv) {
 
     if ((fd_param = open (param_file, O_RDONLY)) < 0) {
         perror ("param open");
-        //Terminate_all (-1, -1, fd_wtch, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
         exit (EXIT_FAILURE);
     }
-
-    /*int kb_fd = shm_open (KB_ADDR, O_RDWR, 0666);
-    if (kb_fd < 0) {
-        perror ("shared memory opening kb");
-        Terminate_all (-1, fd_param, fd_wtch, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
-    }
-
-    void * kb_ptr = mmap (0, sizeof (int), PROT_WRITE | PROT_READ, MAP_SHARED, kb_fd, 0);
-    if (kb_ptr == MAP_FAILED) {
-        perror ("shared memory kb mapping");
-        Terminate_all (-1, fd_wtch, fd_param, kb_fd, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
-    }
-    
-    fd_out = shm_open (MAP_ADDR, O_CREAT | O_RDWR, 0666);
-    if (fd_out < 0) { 
-        perror ("open");
-        Terminate_all (fd_out, fd_wtch, fd_param, kb_fd, NULL, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
-    }
-
-    char pos_str [2 * sizeof (double)];
-    void * pos_writer = mmap (0, 2 * sizeof (double), PROT_WRITE | PROT_READ, MAP_SHARED, fd_out, 0);
-    if (pos_writer == MAP_FAILED) {
-        perror ("shm mapping");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, NULL, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
-    }*/
     
     int fd_serv_in, fd_serv_out, fd_in_kb;
     sscanf (argv [1], "%d %d", &fd_serv_in, &fd_serv_out);

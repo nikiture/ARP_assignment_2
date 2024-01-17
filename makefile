@@ -8,7 +8,7 @@ clean_binaries:
 clean_logs:
 	rm build/log_results.txt
 
-start_build: build
+start_build: 
 	mkdir build
 
 Master: 

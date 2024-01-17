@@ -20,22 +20,12 @@
 
 
 int main () {
-    int shm_fd;
-
-    /*shm_fd = shm_open (MAP_ADDR, O_CREAT | O_RDWR, 0666);
-    if (shm_fd < 0) perror ("shm open");
-
-
-    if (ftruncate (shm_fd, 2 * sizeof (double)) < 0) perror ("truncate");*/
 
     int sh_kb_fd = shm_open (KB_ADDR, O_CREAT | O_RDWR, 0666);
     if (sh_kb_fd < 0) perror ("shm kb open");
 
     if (ftruncate (sh_kb_fd, sizeof (int)) < 0) perror ("ftruncate");
 
-    //sem_t * map_sem = sem_open (MAP_SEM, O_CREAT, 0666, 1);
-
-    sem_t * kb_sem = sem_open (KB_SEM, O_CREAT, 0666, 1);
 
     const int proc_numb = 4, proc_kons = 2;
     int null_wait;
@@ -69,17 +59,14 @@ int main () {
         perror ("pipe generation");
         exit (EXIT_FAILURE);
     }
-    
-    /*for (int i = 0; i < proc_numb - 1; i++) {
-        printf ("%d %d\n", fds [i] [0], fds [i] [1]);
-    }*/
+
     char server_fd [proc_numb - 1] [20];//10 is max number of digits for int
     char process_fd [proc_numb - 1] [20]; //one string per process excluding watchdog
     char kb_din_fd [10];
     //in the server argument there is going to be a series of pairs of file directories, the first one is the request reception (read from)
     for (int i = 0; i < proc_numb - 1; i++) {
         sprintf (server_fd [i], "%d %d", out_fds [i] [0], in_fds [i] [1]);
-        //printf ("%s", server_fd [i]);
+
         sprintf (process_fd [i], "%d %d", in_fds [i] [0], out_fds [i] [1]);
     }
     sprintf (kb_din_fd, "%d", kb_to_din_fd [0]);
@@ -146,9 +133,12 @@ int main () {
         perror ("fork");
         exit (EXIT_FAILURE);
     }
+    char kons_map_pid [10];
+
+    sprintf (kons_map_pid, "%d", proc_pid [1]);
 
     if (res == 0) {
-        char * konsargwtcdg [] = {/*"konsole", "-e", */"./watchdog", NULL};
+        char * konsargwtcdg [] = {"./watchdog", kons_map_pid, NULL}; //sending to watchdog also pids of konsole to properly close it in case of crash
 
         if (execvp (konsargwtcdg [0], konsargwtcdg) < 0) {
             perror ("execvp 5");
@@ -165,82 +155,25 @@ int main () {
 
     printf ("the watchdog process has terminated\n"); 
 
-    term_child = waitpid (proc_pid [2], &null_wait, 0);
-    if (term_child < 0) perror ("wait");
-
-    printf ("the blackboard process has terminated\n");
-
-    term_child = waitpid (proc_pid [0], &null_wait, 0);
-    if (term_child < 0) perror ("wait");
-
-    printf ("the drone process has terminated\n");
-
-    term_child = waitpid (proc_pid [1], &null_wait, 0);
-    if (term_child < 0) perror ("wait");
-
-    printf ("the map process has terminated\n");
-
-    term_child = waitpid (proc_pid [3], NULL, 0);
-    if (term_child < 0) perror ("wait");
-
-    printf ("the obstacle generation process has terminated\n");
     
-    /*term_child = wait (NULL);
-    printf ("one process has terminated: ");
-    
-    if (term_child == res) 
-        printf ("the watchdog;");
-    else {
-        int i;
-        for (i = 0; i < proc_numb; i++) {
-            if (term_child == proc_pid [i]) break;
-        }
-        printf ("the %d one", i);
-    }*/
-
-    
-    /*printf ("killing all other processes\n");
-
-    //sleep (30);
+    printf ("killing all other processes\n");
 
     for (int i = 0; i < proc_numb; i++) {
         kill (proc_pid [i], SIGKILL);
     }
-    kill (res, SIGKILL);
     for (int i = 0; i < proc_numb -1; i++) {
         close (out_fds [i] [0]);
         close (in_fds [i] [1]);
         close (out_fds [i] [1]);
         close (in_fds [i] [0]);
-    }*/
+    }
        
-
-    printf ("all processes have terminated\n");
-
-
-    /*for (int i = 0; i < proc_numb; i++) {
-        if (proc_pid [i] == term_child) continue;
-        if (kill (proc_pid [i], SIGKILL) < 0) {
-            perror ("kill");
-        }
-        close (logfd [i]);
-    }*/
-    //f (res != term_child) {
-    /*if (kill (res, SIGKILL) < 0) {
-        perror ("kill");
-    }*/
-    //}
     printf ("game finished!\n");
     printf ("bye!\n");
 
     for (int i = 0; i < proc_numb; i++) {
         close (logfd [i]);
     }
-
-    sem_unlink (MAP_SEM);
-    sem_unlink (KB_SEM);
-    shm_unlink (MAP_ADDR);
-    shm_unlink (KB_ADDR);
 
     exit (EXIT_SUCCESS);
     return 0;

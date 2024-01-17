@@ -23,7 +23,12 @@ int main (int argc, char ** argv) {
         perror ("log_res open");
         exit (EXIT_FAILURE);
     }
-
+    if (argc < 2) {
+        printf ("not enough input arguments\n");
+        exit (EXIT_FAILURE);
+    }
+    int kons_pid;
+    sscanf (argv [1], "%d", &kons_pid);
     fd_set log_check;
     const int proc_numb = 4; //drone processor has index 0, map displayer 1, server 2, obstacle generator 3
     pid_t ID_monitored [proc_numb], proc_id;
@@ -39,7 +44,6 @@ int main (int argc, char ** argv) {
             exit (EXIT_FAILURE);
         }
     }
-    //sleep (4);
     int select_res, read_res, count;
     char proc_info [proc_numb] [10];
     char log_str [10];
@@ -69,6 +73,7 @@ int main (int argc, char ** argv) {
 
         if (select_res == 0) { //less processes than the expected number has responded, the watchdog terminates immediately to make the game closed by the master process
             printf ("watchdog here!\nsome process (the one with index %d) did not identify itself\n", i);
+            //index: 0 is dynamics, 1 is map displayer, 2 is blackboard, 3 is obstacle generator
             write (feedback_fd, "some process did not identify itself", 37);
             exit (EXIT_FAILURE);
         }
@@ -90,19 +95,15 @@ int main (int argc, char ** argv) {
     while (1) {
         printf ("watchdog here sending signal to all processes\n");
         for (int i = 0; i < proc_numb; i++) {
-            if (kill (ID_monitored [i], SIGUSR1) < 0) {
-                perror ("kill");
-                /*printf ("error on process %d\n", i);
-                sleep (20);
-                exit (EXIT_FAILURE);*/
-            }
+            kill (ID_monitored [i], SIGUSR1);
         }
         usleep (10000); //waits a bit to make sure that all processes have written
        
         wait_time.tv_sec = 0;
         wait_time.tv_usec = 5000;
         for (count = 0; count < proc_numb; count ++) { 
-            //reset respense checker and FD_SET for select
+            
+            //reset response checker and FD_SET for select
             proc_resp [count] = 1;
             FD_ZERO (&log_check);
             FD_SET (log_fd [count], &log_check);
@@ -120,6 +121,7 @@ int main (int argc, char ** argv) {
                 for (int i = 0; i < proc_numb; i++) {
                     kill (ID_monitored [i], SIGKILL);
                 }
+                kill (kons_pid, SIGKILL);
                 sleep (5);
                 exit (EXIT_FAILURE);
             }
@@ -147,6 +149,7 @@ int main (int argc, char ** argv) {
                     close (log_fd [k]);
                     kill (ID_monitored [k], SIGKILL);
                 }
+                kill (kons_pid, SIGKILL);
                 exit (EXIT_SUCCESS);
             }
         }
@@ -156,10 +159,11 @@ int main (int argc, char ** argv) {
             if (time (&curr_time) < 0) {
                 perror ("time measure");
                 for (int j = 0; j < proc_numb; j++) {
-                    if (kill (ID_monitored [i], SIGKILL) < 0) {
+                    if (kill (ID_monitored [j], SIGKILL) < 0) {
                         perror ("kill");
                     }
                 }
+                kill (kons_pid, SIGKILL);
                 sleep (5);
                 exit (EXIT_FAILURE);
             }
@@ -171,20 +175,22 @@ int main (int argc, char ** argv) {
                 if (sprintf (log_feedback, "%s%d%s", "process ", ID_monitored [i], " has missed a call\n") < 0) {
                     perror ("sprintf");
                     for (int j = 0; j < proc_numb; j++) {
-                        if (kill (ID_monitored [i], SIGKILL) < 0) {
+                        if (kill (ID_monitored [j], SIGKILL) < 0) {
                             perror ("kill");
                         }
                     }
+                    kill (kons_pid, SIGKILL);
                     sleep (5);
                     exit (EXIT_FAILURE);
                 }
                 if (write (feedback_fd, log_feedback, sizeof (log_feedback)) < 0) {
                     perror ("write");
                     for (int j = 0; j < proc_numb; j++) {
-                        if (kill (ID_monitored [i], SIGKILL) < 0) {
+                        if (kill (ID_monitored [j], SIGKILL) < 0) {
                             perror ("kill");
                         }
                     }
+                    kill (kons_pid, SIGKILL);
                     sleep (5);
                     exit (EXIT_FAILURE);
                 }
@@ -196,6 +202,7 @@ int main (int argc, char ** argv) {
             for (int i = 0; i < proc_numb; i++) {
                 kill (ID_monitored [i], SIGKILL);
             }
+            kill (kons_pid, SIGKILL);
             sleep (5);
             exit (EXIT_FAILURE);
         }
@@ -211,6 +218,7 @@ int main (int argc, char ** argv) {
                 for (int i = 0; i < proc_numb; i++) {
                     kill (ID_monitored [i], SIGKILL);
                 }
+                kill (kons_pid, SIGKILL);
                 for (int i = 0; i < proc_numb; i++) {
                     close (log_fd [i]);
                 }

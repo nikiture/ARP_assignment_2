@@ -16,11 +16,12 @@
 #include "world_info.h"
 
 double PROPULSION_STEP = 1;
-const double root2 = 1.41421;
+//approximation of sqrt(2) to avoid calling the function every time it is used in the keyboard forces computation (diagonal forces)
+const double root2 = 1.41421; 
 const int frequency = 100;               //frequency of dynamycs computation in hertz
 
 
-const int log_id = 0; //position in log_file where pid is written
+const int log_id = 0; //identifier of log_file where pid is written
 
 void watchdog_req (int signumb) {
     if (signumb == SIGUSR1) {
@@ -126,101 +127,70 @@ int Get_Kb_In (int kb_in, int * quit, int * reset, double * kb_forces_x, double 
 int update_BB (double * pos, int out_fd, int in_fd, char * IO_msg) {
 /*int update_BB (double * pos, sem_t * map_semaph, void * pos_writer) {*/
 
-    /*if ((sem_wait (map_semaph)) < 0) {
-        perror ("semaph taking");
-        Terminate_all (-1, -1, -1, -1, pos_writer, map_semaph, NULL, NULL, EXIT_FAILURE);
-    }
-
-    void * syscall_res = memcpy (pos_writer, pos, 2 * sizeof (double));
-    if (syscall_res == NULL) {
-        perror ("shared memory writing");
-        Terminate_all (-1, -1, -1, -1, pos_writer, map_semaph, NULL, NULL, EXIT_FAILURE);
-    }
-    if (sem_post (map_semaph) < 0) {
-        perror ("semaph release");
-        Terminate_all (-1, -1, -1, -1, pos_writer, map_semaph, NULL, NULL, EXIT_FAILURE);
-    }*/
-    //printf ("dynamics: preparing message\n");
     sprintf (IO_msg, "%lf3 %lf3", pos [0], pos [1]);
-    //printf ("dynamic: sending message\n");
+
     write (out_fd, IO_msg, strlen (IO_msg) + 1);
-    //printf ("dynamic: waiting for response\n");
+
     read (in_fd, IO_msg, 160);
-    //printf ("dynamics: received response from server\n");
+
 }
 void request_obstacles (int fd_in, int fd_out, char * IO_msg, int * obs_placed, double obs_pos [obs_num] [2]) {
-    char tmp_msg [160];
-    //printf ("dynamics: creating request message\n");
+    char tmp_msg [160]; //string used for the chain of multiple sscanf() used for de-formatting all the obstacle positions sent from server
+    
     if (sprintf (IO_msg, "%c", 'r') < 0) {
         perror ("sprintf");
         exit (EXIT_FAILURE);
     }
-    //printf ("dynamics: sending request message\n");
+
     if (write (fd_out, IO_msg, strlen (IO_msg)) < 0) {
         perror ("write");
         exit (EXIT_FAILURE);
     }
-    //printf ("dynamics: waiting for response from server\n");
+
     if (read (fd_in, IO_msg, 160) < 0) {
         perror ("response read");
         exit (EXIT_FAILURE);
     }
-    //printf ("dynamics: processing response\n");
+
     if (IO_msg [0] == 'n') return;
-    sscanf (IO_msg, "%*c%d%*c%s", obs_placed, tmp_msg); //in IO_msg are present the chars '[' ']' used for the 3rd assignment format but not used by the process, %*c let the server match them without storing them
+
+    sscanf (IO_msg, "%*c%d%*c%s", obs_placed, tmp_msg); //in IO_msg are present the chars '[' ']' already present for the 3rd assignment format but not used by the process, %*c let the server match them without storing them
+    
     strcpy (IO_msg, tmp_msg);
+    
     if (*obs_placed > obs_num) *obs_placed = obs_num;
-    sscanf (IO_msg, "%lf%*c%lf%s", &obs_pos [0] [0], &obs_pos [0] [1], tmp_msg);
+
+    sscanf (IO_msg, "%lf%*c%lf%s", &obs_pos [0] [0], &obs_pos [0] [1], tmp_msg);//between a pair of obstacle coordinates there is a ',' which is to be ignored
     strcpy (IO_msg, tmp_msg);
+
     for (int i = 1; i < *obs_placed; i++) {
-        sscanf (IO_msg, "%*c%lf%*c%lf%s", &obs_pos [i] [0], &obs_pos [i] [1], tmp_msg);
+        sscanf (IO_msg, "%*c%lf%*c%lf%s", &obs_pos [i] [0], &obs_pos [i] [1], tmp_msg); //between two pairs of obstacles positions there is a '|' to be considered but discarded
         strcpy (IO_msg, tmp_msg);
     }
-    /*for (int i = 0; i < *obs_placed; i ++) {
-        printf ("%lf %lf\n", obs_pos [i] [0], obs_pos [i] [1]);
-    }*/
+    
 }
 
 int main (int argc, char ** argv) {
-    //printf ("dynaics: %d\n", getpid());
-    //in argv are the fds to communicate with server for obstacles and drone position
-    signal (SIGUSR1, watchdog_req);
+
+
+    signal (SIGUSR1, &watchdog_req);
+    
+    
+    
+    //in argv are the fds to communicate with server for obstacles and drone position and with map/kb process for the keyboard input
+    
     if (argc < 3) {
         printf ("not enough arguments\n");
         exit (EXIT_FAILURE);
     }
-    /*sem_t * map_semaph = sem_open (MAP_SEM, O_CREAT, 0666, 1);
-    if (map_semaph == SEM_FAILED) {
-        perror ("semaphore opening");
-        exit (EXIT_FAILURE);
-    }
-
-    if (sem_init (map_semaph, 0, 1) < 0) {
-        perror ("semaphore initialisation");
-        sem_close (map_semaph); 
-        exit (EXIT_FAILURE);
-    }*/
-
-    sem_t * kb_sem = sem_open (KB_SEM, O_CREAT, 0666, 1);
-    if (kb_sem == SEM_FAILED) {
-        perror ("semaphore creation kb");
-        //sem_close (map_semaph);
-        exit (EXIT_FAILURE);
-    }
-
-    if (sem_init (kb_sem, 0, 1) < 0) {
-        perror ("semaphore kb creation");
-        //sem_close (map_semaph);
-        sem_close (kb_sem);
-        exit (EXIT_FAILURE);
-    }
+    
 
     int count = 0;
     const int maxcount = 2;
     char IO_msg [160];
-    struct timespec start_time;
-    struct timespec end_time;
+    struct timespec kb_wait_time;
 
+    //variables for the euler mehtod for the dynamics simulation
     //0 is position of previous iteration, 1 is position of 2 iterations ago
     double drone_x [2], drone_y [2];
 
@@ -251,7 +221,8 @@ int main (int argc, char ** argv) {
     fd_wtch = open (log_file [log_id], O_WRONLY, 0666);
     if (fd_wtch < 0) {
         perror ("log pipe open");
-        Terminate_all (-1, -1, -1, fd_wtch, NULL, NULL, kb_sem, NULL, EXIT_FAILURE); //null because shared memories not yet initialised
+        //Terminate_all (-1, -1, -1, fd_wtch, NULL, NULL, kb_sem, NULL, EXIT_FAILURE); //null because shared memories not yet initialised
+        exit (EXIT_FAILURE);
     }
 
     char logdata [10];
@@ -260,13 +231,14 @@ int main (int argc, char ** argv) {
 
     if (sprintf (logdata, "%d", pid) < 0) {
         perror ("pid formatting");
-        Terminate_all (-1, fd_wtch, -1, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
+        //Terminate_all (-1, fd_wtch, -1, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
+        exit (EXIT_FAILURE);
     }
 
     if (write (fd_wtch, logdata, sizeof (logdata)) < 0) {
         perror ("watchdog write");
 
-        Terminate_all (-1, fd_wtch, -1, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
+        exit (EXIT_FAILURE);
     }
 
     char * param_file = "parameters.txt";
@@ -285,10 +257,11 @@ int main (int argc, char ** argv) {
 
     if ((fd_param = open (param_file, O_RDONLY)) < 0) {
         perror ("param open");
-        Terminate_all (-1, -1, fd_wtch, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
+        //Terminate_all (-1, -1, fd_wtch, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
+        exit (EXIT_FAILURE);
     }
 
-    int kb_fd = shm_open (KB_ADDR, O_RDWR, 0666);
+    /*int kb_fd = shm_open (KB_ADDR, O_RDWR, 0666);
     if (kb_fd < 0) {
         perror ("shared memory opening kb");
         Terminate_all (-1, fd_param, fd_wtch, -1, NULL, NULL, kb_sem, NULL, EXIT_FAILURE);
@@ -311,13 +284,12 @@ int main (int argc, char ** argv) {
     if (pos_writer == MAP_FAILED) {
         perror ("shm mapping");
         Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, NULL, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
-    }
+    }*/
     
     int fd_serv_in, fd_serv_out, fd_in_kb;
     sscanf (argv [1], "%d %d", &fd_serv_in, &fd_serv_out);
     sscanf (argv [2], "%d", &fd_in_kb);
     
-    //update_BB (drone_act, map_semaph, pos_writer);
 
     int reset, quit, obs_res_count = 0;
 
@@ -337,21 +309,22 @@ int main (int argc, char ** argv) {
 
     const int wxsize = MAP_X_SIZE, wysize = MAP_Y_SIZE;
 
+    //reading from the (build/)parameters.txt file the parameters to be used in the simulation
     syscall_res = lseek (fd_param, 0, SEEK_SET);
     if (syscall_res < 0) {
         perror ("lseek");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
+        exit (EXIT_FAILURE);
     }
     syscall_res = read (fd_param, param_str, 5 * sizeof (double));
     if (syscall_res < 0) {
         perror ("param_read 1:");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
+        exit (EXIT_FAILURE);
     }
 
     syscall_res = sscanf (param_str, "%lf %lf %lf %lf %lf", &PROPULSION_STEP, &M, &K, &Eta, &ro_max);
     if (syscall_res < 0) {
         perror ("param_scan 1:");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
+        exit (EXIT_FAILURE);
     }
     //multiplying by frequency instead of dividing by dt to avoid getting nan as result
     //values used in differential equation of drone
@@ -364,50 +337,49 @@ int main (int argc, char ** argv) {
     printf ("waiting for message from server\n");
     if (read (fd_serv_in, IO_msg, 160) < 0) {
         perror ("wait read");
-        Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
+        exit (EXIT_FAILURE);
     }
-    
+    update_BB (drone_act, fd_serv_out, fd_serv_in, IO_msg);
+
+    sigset_t select_mask, orig_mask;
+    sigaddset (&select_mask, SIGUSR1);
+    fd_set kb_reception;
 
     while (1) {
             /*input informations*/
 
         //keyboard input
-        /*
-        if (sem_wait (kb_sem) < 0) {
-            perror ("kb semaphore taking");
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
-        }
 
-        memcopy_res = memcpy (&kb_in, kb_ptr, sizeof (int));
-        if (memcopy_res == NULL) {
-            perror ("shared memory kb write");
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
-        }
-
-        if (sem_post (kb_sem) < 0) {
-            perror ("kb semaphore release");
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE);
-        }
-        */
-
-        if (read (fd_in_kb, IO_msg, 160) < 0) {
-            perror ("kb read");
+        //setting up a pselect because of different frequencies of the dynamics and the map processes 
+        kb_wait_time.tv_sec = 0;
+        kb_wait_time.tv_nsec = 0;
+        FD_ZERO (&kb_reception);
+        FD_SET (fd_in_kb, &kb_reception);
+        syscall_res = pselect (fd_in_kb + 1, &kb_reception, NULL, NULL, &kb_wait_time, &select_mask);
+        if (syscall_res < 0) {
+            perror ("kb pselect");
             exit (EXIT_FAILURE);
         }
-        if (sscanf (IO_msg, "%d", &kb_in) < 0) {
-            perror ("kb sscanf");
-            exit (EXIT_FAILURE);
+        kb_in = 0;
+        if (syscall_res > 0) {
+            if (read (fd_in_kb, IO_msg, 160) < 0) {
+                perror ("kb read");
+                exit (EXIT_FAILURE);
+            }
+            if (sscanf (IO_msg, "%d", &kb_in) < 0) {
+                perror ("kb sscanf");
+                exit (EXIT_FAILURE);
+            }
         }
-        //printf ("dynamics: received from keyboard %d\n", kb_in);
         
-        //server (obstacles) input
-        if (obs_res_count % 100 == 0) {
+        //server (obstacles) input, read only every 10 cycles
+        if (obs_res_count % 10 == 0) {
             request_obstacles (fd_serv_in, fd_serv_out, IO_msg, &obs_placed, obs_pos);
-            //printf ("read obstacle positions\n");
             obs_res_count = 0;
         }
 
                                 /*forces acting on drone*/
+
         //forces for keyboard input (received from the process displaying the map)
         Get_Kb_In (kb_in, &quit, &reset, &kb_force_x, &kb_force_y);
 
@@ -419,12 +391,11 @@ int main (int argc, char ** argv) {
             int time_left = sleep (1);
             while (time_left > 0) time_left = sleep (time_left);
             request_obstacles (fd_serv_in, fd_serv_out, IO_msg, &obs_placed, obs_pos);
-            //printf ("read obstacle positions\n");
             obs_res_count = 0;            
         }
 
         if (quit == 1) {
-            Terminate_all (fd_out, fd_param, fd_wtch, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_SUCCESS);
+            exit (EXIT_FAILURE);
         }
 
         //obstacles
@@ -435,13 +406,9 @@ int main (int argc, char ** argv) {
             dist_obs_y = drone_act [1] - obs_pos [i] [1];
             
             dist_obs = sqrt (dist_obs_x * dist_obs_x + dist_obs_y * dist_obs_y);
-            //printf ("%lf %lf %lf %lf %lf %lf\n", drone_act [0], drone_act [1], obs_pos [i] [0], obs_pos [i] [1], dist_obs_x, dist_obs_y);
-            //printf (\n", drone_act [1], obs_pos [i] [1], dist_obs_y);
-            //printf ("%lf\n", dist_obs);
             if (dist_obs < ro_max) {
-                //printf ("%lf %lf\n", dist_obs_x, dist_obs_y);
                 obs_force = Eta * (1/dist_obs - 1/ro_max) / (dist_obs * dist_obs); 
-                /* dist_obs_x / dist_obs is the x component of the gradient of the distance vector*/
+                /* dist_obs_x / dist_obs is the x component of the gradient of the distance vector, same logic for y component*/
                 obs_force_x += obs_force * dist_obs_x / dist_obs;
                 obs_force_y += obs_force * dist_obs_y / dist_obs;
             }
@@ -455,7 +422,7 @@ int main (int argc, char ** argv) {
         //walls 
         wall_force_x = 0;
         wall_force_y = 0;
-
+        //values for right and top walls, for left and low walls (0 x and y respectively as coordinates) used directly drone_act
         wall_dist_x = MAP_X_SIZE - drone_act [0];
         wall_dist_y = MAP_Y_SIZE - drone_act [1];
         if (drone_act [0] < ro_max) { //left end, force to the right
@@ -497,10 +464,9 @@ int main (int argc, char ** argv) {
         drone_y [0] = drone_act [1];
 
         //send to blackboard / map displayer the just computed location of the drone
-        //update_BB (drone_act, map_semaph, pos_writer);
+
         if (count == 0) {
             update_BB (drone_act, fd_serv_out, fd_serv_in, IO_msg);
-            //printf ("dynamics: sent position to server\n");
         }
 
         count = (count + 1) % maxcount;
@@ -509,6 +475,6 @@ int main (int argc, char ** argv) {
         usleep (SEC_TO_USEC / frequency);
     }
 
-    Terminate_all (fd_out, fd_wtch, fd_param, kb_fd, pos_writer, NULL, kb_sem, kb_ptr, EXIT_FAILURE); //failure because program should never end here
+    exit (EXIT_FAILURE); //failure because program should never end here
     return 0;
 }

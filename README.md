@@ -37,7 +37,7 @@ Then the process runs the following tasks with a frequency of 100 Hz:
 this process is tasked with both showing the obstacles and drone on the simulation window and reading the keyboard input for the drone control. In particular with a frequency of 50 HZ:
 
 1. reads keyboard input and sends it to the dynamics process with a pipe;
-2. if the 'z' or 'q' keys have been pressed, a message communicating the reset or quit instruction from the user is sent to the blackboard, then a response from the server is waited in the case of a 'z' key; if the 'q' key was pressed a quit message is also sent to the watchdog before quitting itself;
+2. if the 'z' or 'q' keys have been pressed, a message communicating the reset or quit instruction from the user is sent to the blackboard, then a response from the server is waited in the case of a 'z' key; if the 'q' key was pressed a quit message is also sent to the watchdog (using the log pipe) before quitting itself;
 3. requests and receives the drone position from the blackboard process using a pair of pipes;
 4. requests and receives the obstacles' position (if changed) from the blackboard with the pipe pair placed between the two processes;
 5. properly elaborates the obtained coordinates to match with the values required for the ncurses functions to display;
@@ -76,8 +76,8 @@ Every second:
 The task of the watchdog is to periodically monitor the processes' responses in order to try and detect eventuals locks/crashes in the software's processes; in order to achieve this goal every 2 seconds this process:
 
 1. sends a signal to each of the process it is tasked to monitor;
-2. waits a bit to ensure that every process has had the chance to answer to the signal by writing to a specific (named) pipe (one per process);
-3. checks which processes answered the signal and updates the last response time of each process accordingly, writing on the logfile when a process has not answered one of these calls;
+2. waits a bit to ensure that every process has had the chance to answer to the signal by writing to a specific (named) (log) pipe (one per process);
+3. checks which processes answered the signal and updates the last response time of each process accordingly, writing on the logfile when a process has not answered one of these calls; it also checks if the map process sent a quit message and, in the case it was sent, ensures that all processes are terminated and then quits;
 4. compares the current time with the last response time: if more than 4 seconds of non-response have passed the watchdog registers this on the logfile and kills all the children processes, causing the game to end.
 
 ## How to run and install it

@@ -11,9 +11,10 @@
 #include <math.h>
 #include "world_info.h"
 
-const int log_id = 3; //position in log_file where pid is written
-const int obs_gen_cooldown = 30; //seconds passing between obstacle generation (unless z key pressed)
-struct position obs_pos [obs_num];
+const int log_id = 4; //position in log_file where pid is written
+const int targ_gen_cooldown = 30; //seconds passing between obstacle generation (unless z key pressed)
+//double targ_pos [targ_num] [2];
+struct position targ_pos [targ_num];
 
 void watchdog_req (int signumb) {
     if (signumb == SIGUSR1) {
@@ -43,19 +44,19 @@ void watchdog_req (int signumb) {
 
 
 void generate_obstacles () {
-    for (int i = 0; i < obs_num; i++) {
-        obs_pos [i].x = ((double) rand () / ((double) RAND_MAX)) * MAP_X_SIZE;
-        obs_pos [i].y = ((double) rand () / ((double) RAND_MAX)) * MAP_Y_SIZE;
-        //printf ("%lf %lf\n", obs_pos [i].x, obs_pos [i].y);
+    for (int i = 0; i < targ_num; i++) {
+        targ_pos [i].x = ((double) rand () / ((double) RAND_MAX)) * MAP_X_SIZE;
+        targ_pos [i].y = ((double) rand () / ((double) RAND_MAX)) * MAP_Y_SIZE;
+        printf ("%lf %lf\n", targ_pos[i].x, targ_pos[i].y);
     }
 }
 
 void send_obstacle_to_server (int fd_out, char * out_msg, char * tmp_msg) {
-    if (sprintf (out_msg, "%c%d%c", '[', obs_num, ']') < 0) {
+    if (sprintf (out_msg, "%c%d%c", '[', targ_num, ']') < 0) {
         perror ("sprintf");
         exit (EXIT_FAILURE);
     }
-    if (sprintf (tmp_msg, "%s%.3lf%c%.3lf", out_msg, obs_pos [0].y, ',', obs_pos [0].x) < 0) {
+    if (sprintf (tmp_msg, "%s%.3lf%c%.3lf", out_msg, targ_pos [0].y, ',', targ_pos [0].x) < 0) {
         perror ("sprintf");
         exit (EXIT_FAILURE);
     }
@@ -63,8 +64,8 @@ void send_obstacle_to_server (int fd_out, char * out_msg, char * tmp_msg) {
         perror ("strcpy");
         exit (EXIT_FAILURE);
     }
-    for (int i = 1; i < obs_num; i++) {
-        if (sprintf (tmp_msg, "%s%c%.3lf%c%.3lf", out_msg, '|', obs_pos [i].y, ',', obs_pos [i].x) < 0) {
+    for (int i = 1; i < targ_num; i++) {
+        if (sprintf (tmp_msg, "%s%c%.3lf%c%.3lf", out_msg, '|', targ_pos [i].y, ',', targ_pos [i].x) < 0) {
             perror ("sprintf");
             exit (EXIT_FAILURE);
         } 
@@ -120,7 +121,7 @@ int main (int argc, char ** argv) {
     if (close (fd) < 0) {
         perror ("close");
     }
-    srand (time (NULL) + 5);
+    srand (time (NULL) + 2); //the generators and the server are spawned almost simultaneously, adding some number to time to amke sure that they have different seeds
     struct timespec t; 
     int count = 0;
     int reset_msg, time_left, sec_passed;
@@ -152,7 +153,7 @@ int main (int argc, char ** argv) {
             perror ("pselect");
             exit (EXIT_FAILURE);
         }
-        //if (reset_msg > 0) {
+        if (reset_msg > 0) {
             if (read (in_fd, tmp_msg, 240) < 0) {
                 perror ("read");
                 exit (EXIT_FAILURE);
@@ -163,19 +164,20 @@ int main (int argc, char ** argv) {
             generate_obstacles ();
 
             send_obstacle_to_server (out_fd, out_msg, tmp_msg);
-        //}
+        }
         /*gettimeofday (&t_curr, NULL);
         sec_passed = t_curr.tv_sec - t_start.tv_sec;
         if (t_curr.tv_usec < t_start.tv_usec) sec_passed --;
 
-        if (sec_passed > obs_gen_cooldown || reset_msg > 0) {
+        if (sec_passed > targ_gen_cooldown || reset_msg > 0) {
             //generate obstacles position
             generate_obstacles ();
             //send obstacle position to server
             send_obstacle_to_server (out_fd, out_msg, tmp_msg);
+            //set the new last sending time
             gettimeofday (&t_start, NULL);
         }*/
-        
+         
         time_left = sleep (1);
         while (time_left > 0) {
             time_left = sleep (time_left);

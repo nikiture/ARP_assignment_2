@@ -19,6 +19,7 @@
 
 #define DRONE_MARKER 'X'
 #define OBSTACLE_MARKER 'O'
+char Targ_marker [targ_num] [2];  //each target has up to two digits identifying it
 
 const double framerate = 50;
 int logfd = 0;
@@ -59,7 +60,7 @@ void watchdog_req (int signumb) {
     }
 }
 
-void read_drone_from_BB (int in_fd, int out_fd, double * drone_pos, char * IO_msg, struct timespec * t, sigset_t * sigmask) {
+void read_drone_from_BB (int in_fd, int out_fd, struct position * drone_pos, char * IO_msg, struct timespec * t, sigset_t * sigmask) {
 
     sprintf (IO_msg, "%c", 'd');
 
@@ -72,21 +73,31 @@ void read_drone_from_BB (int in_fd, int out_fd, double * drone_pos, char * IO_ms
     FD_ZERO (&fd_input);
     FD_SET (in_fd, &fd_input);
     int syscall_res = pselect (in_fd + 1, &fd_input, NULL, NULL, NULL, sigmask);
-    if (syscall_res < 0) printerror ("pselect");
+    if (syscall_res < 0) printerror ("pselect drone");
     if (syscall_res == 0) return;
     if (read (in_fd, IO_msg, 240) < 0) {
         printerror ("BB read");
         exit (EXIT_FAILURE);
     }
 
-    if (sscanf (IO_msg, "%lf %lf", &drone_pos [0], &drone_pos [1]) < 0) {
+    if (sscanf (IO_msg, "%lf %lf", &(drone_pos->x), &(drone_pos->y)) < 0) {
         printerror ("drone deformatting");
     }
+
+    //adjustemnts to drone position to match with ncurses: positive going downward, maximum at 0
+    drone_pos->y *= -1; 
+    drone_pos->y += MAP_Y_SIZE;
+
+    //limitations to positions put just in case to still visualize the drone, but they should not be necessary with the wall forces implemented
+    if (drone_pos->x < 0) drone_pos->x = 0;
+    if (drone_pos->x > MAP_X_SIZE) drone_pos->x = MAP_X_SIZE;
+    if (drone_pos->y < 0) drone_pos->y = 0;
+    if (drone_pos->y > MAP_Y_SIZE) drone_pos->y = MAP_Y_SIZE;
 }
 
-void request_obs (int in_fd, int out_fd, int * obs_placed, double obs_pos [obs_num] [2], char * IO_msg, char * tmp_msg, struct timespec * t, sigset_t * sigmask) {
+void request_obs (int in_fd, int out_fd, int * obs_placed, struct position obs_pos [obs_num], char * IO_msg, char * tmp_msg, struct timespec * t, sigset_t * sigmask) {
 
-    if (sprintf (IO_msg, "%c", 'r') < 0) {
+    if (sprintf (IO_msg, "%c", 'o') < 0) {
         printerror ("request formatting");
     }
 
@@ -100,38 +111,141 @@ void request_obs (int in_fd, int out_fd, int * obs_placed, double obs_pos [obs_n
     FD_ZERO (&fd_input);
     FD_SET (in_fd, &fd_input);
     syscall_res = pselect (in_fd + 1, &fd_input, NULL, NULL, NULL, sigmask);
-    if (syscall_res < 0) printerror ("pselect");
+    if (syscall_res < 0) printerror ("pselect obs");
     if (syscall_res == 0) return;
     if (read (in_fd, IO_msg, 240) < 0) {
         printerror ("request read");
     }
 
-    if (IO_msg [0] == 'n') return;
+    if (IO_msg [0] == 'n') return; //obstacles not changed, message deformatting not to be done
 
     sscanf (IO_msg, "%*c%d%*c%s", obs_placed, tmp_msg); //in IO_msg are present the chars '[' ']' used for the 3rd assignment format but not used by the process, %*c let the server match them without storing them
     strcpy (IO_msg, tmp_msg);
 
     if (*obs_placed > obs_num) *obs_placed = obs_num;
 
-    sscanf (IO_msg, "%lf%*c%lf%s", &obs_pos [0] [0], &obs_pos [0] [1], tmp_msg);
+    sscanf (IO_msg, "%lf%*c%lf%s", &(obs_pos [0].x), &(obs_pos [0].y), tmp_msg);
     strcpy (IO_msg, tmp_msg);
 
     for (int i = 1; i < *obs_placed; i++) {
-        sscanf (IO_msg, "%*c%lf%*c%lf%s", &obs_pos [i] [0], &obs_pos [i] [1], tmp_msg);
+        sscanf (IO_msg, "%*c%lf%*c%lf%s", &(obs_pos [i].x), &(obs_pos [i].y), tmp_msg);
         strcpy (IO_msg, tmp_msg);
     }
 
     for (int i = 0; i < *obs_placed; i++) {
-        obs_pos [i] [1] *= -1; 
-        obs_pos [i] [1] += MAP_Y_SIZE;
+        obs_pos [i].y *= -1; 
+        obs_pos [i].y += MAP_Y_SIZE;
     }
 }
+
+
+void request_targ (int in_fd, int out_fd, int * targ_placed, struct position targ_pos [targ_num], char * IO_msg, char * tmp_msg, struct timespec * t, sigset_t * sigmask) {
+    if (sprintf (IO_msg, "%c", 't') < 0) {
+        printerror ("request formatting");
+    }
+
+    int syscall_res = write (out_fd, IO_msg, strlen (IO_msg) + 1);
+
+    if (syscall_res < 0) {
+        printerror ("request write");
+    }
+    fd_set fd_input;
+    FD_ZERO (&fd_input);
+    FD_SET (in_fd, &fd_input);
+    syscall_res = pselect (in_fd + 1, &fd_input, NULL, NULL, NULL, sigmask);
+    if (syscall_res < 0) printerror ("pselect obs");
+    if (syscall_res == 0) return;
+    if (read (in_fd, IO_msg, 240) < 0) {
+        printerror ("request read");
+    }
+
+    /*fd_set fd_input;
+    FD_ZERO (&fd_input);
+    FD_SET (in_fd, &fd_input);
+    /*do {
+        syscall_res = pselect (in_fd + 1, &fd_input, NULL, NULL, NULL, sigmask);
+        if (syscall_res < 0) {
+            if (errno != EINTR) printerror ("pselect target");
+        }
+    } while (syscall_res < 0);
+    if (syscall_res == 0) return;*/
+    /*do {
+        syscall_res = read (in_fd, IO_msg, 240);
+        if (syscall_res < 0 && errno != EINTR) {
+            printerror ("request read");
+        }
+    } while (syscall_res < 0);*/
+
+    if (IO_msg [0] == 'n') return; //targets not changed, message deformatting not to be done
+
+    sscanf (IO_msg, "%*c%d%*c%s", targ_placed, tmp_msg); //in IO_msg are present the chars '[' ']' used for the 3rd assignment format but not used by the process, %*c let the server match them without storing them
+    strcpy (IO_msg, tmp_msg);
+
+    if (*targ_placed > targ_num) *targ_placed = targ_num;
+
+    sscanf (IO_msg, "%lf%*c%lf%s", &(targ_pos [0].x), &(targ_pos [0].y), tmp_msg);
+    strcpy (IO_msg, tmp_msg);
+
+    for (int i = 1; i < *targ_placed; i++) {
+        sscanf (IO_msg, "%*c%lf%*c%lf%s", &(targ_pos [i].x), &(targ_pos [i].y), tmp_msg);
+        strcpy (IO_msg, tmp_msg);
+    }
+
+    for (int i = 0; i < *targ_placed; i++) {
+        targ_pos [i].y *= -1; 
+        targ_pos [i].y += MAP_Y_SIZE;
+    }
+}
+
+void request_current_target (int out_fd, int in_fd, int * curr_targ, char IO_msg [240], int * reset, sigset_t * selectmask) {
+    /*if (sprintf (IO_msg, "%c", 'c') < 0) 
+        printerror ("first target request message");
+    if (write (out_fd, IO_msg, strlen (IO_msg) + 1) < 0) 
+        printerror ("first target request");/**/
+    if (dprintf (out_fd, "%c\n", 'c') < 0) printerror ("current target request");
+    //printw ("sent request, waiting for response\n\r");
+    //refresh ();
+    /*fd_set fd_input;
+    FD_ZERO (&fd_input);
+    FD_SET (in_fd, &fd_input);*/
+    int syscall_res;
+    /*do {
+        syscall_res = pselect (in_fd + 1, &fd_input, NULL, NULL, NULL, selectmask);
+        if (syscall_res < 0) {
+            if (errno != EINTR) printerror ("first target select");
+        }
+    } while (syscall_res < 0);*/
+    do {
+        syscall_res = read (in_fd, IO_msg, 240);
+        if (syscall_res < 0) {
+            if (errno == EINTR) {
+                errno = 0;
+                continue;
+            }
+            printerror ("first target response");  
+        } 
+    } while (syscall_res < 0);/**/
+    //printw ("response received, extracting content\n\r");
+    //refresh ();
+    
+    //printerror (IO_msg);    
+    if (sscanf (IO_msg, "%d", curr_targ) < 0) 
+        printerror ("first target decoding");
+    //printerror (IO_msg);
+}
+
+
 
 int main (int argc, char ** argv) {
 
 
     signal (SIGUSR1, &watchdog_req);
 
+
+    for (int i = 0; i< targ_num; i++) {
+        sprintf (Targ_marker [i], "%d", i);
+    }
+    int curr_targ = 0; //identifier of currentlyfirst target to pick in the order
 
     int fd_in_server, out_fd_server;
 
@@ -148,11 +262,6 @@ int main (int argc, char ** argv) {
     
     int fd_drone;
     sscanf (argv [2], "%d", &fd_drone);
-    int kb_fd = shm_open (KB_ADDR, O_RDWR, 0666);
-    if (kb_fd < 0) printerror ("shared memory opening kb");
-
-    void * kb_ptr = mmap (0, sizeof (int), PROT_WRITE | PROT_READ, MAP_SHARED, kb_fd, 0);
-    if (kb_ptr == MAP_FAILED) printerror ("shared memory kb mapping");
 
     int logfd = open (log_file [log_id], O_WRONLY, 0666);
     if (logfd < 0) printerror ("log file open");
@@ -161,28 +270,57 @@ int main (int argc, char ** argv) {
     int syscall_res;
 
     int pid = getpid ();
+    if (pid < 0) printerror ("pid reception");
 
-    if (sprintf (logdata, "%d", pid) < 0) printerror ("pid log formatting");
+    if (sprintf (logdata, "%d", pid) < 0) 
+        printerror ("pid log formatting");
 
     if (write (logfd, logdata, strlen (logdata) + 1) < 0) {
         printerror ("watchdog write");
     }
 
-    double drone_pos [2], old_pos [2];
-    double obs_pos [obs_num] [2];
+    struct position drone_pos;
+    struct position obs_pos [obs_num];
+    struct position targ_pos [targ_num];
     for (int i = 0; i < obs_num; i++) {
-        obs_pos [i] [0] = 10;
-        obs_pos [i] [1] = 10;
+        obs_pos [i].x = 10;
+        obs_pos [i].y = 10;
+    }
+    for (int i = 0; i < obs_num; i++) {
+        targ_pos [i].x = 10;
+        targ_pos [i].y = 10;
     }
     char IO_msg [240], tmp_str [240];
     int obs_placed = obs_num;
+    int targ_placed = targ_num;
+    
 
     int mapsize [2];
     int kb_res;
+    sigset_t select_mask, orig_mask;
 
+    if (sigemptyset (&select_mask) < 0) {
+        printerror ("mask creation 1");
+    }
+    if (sigaddset (&select_mask, SIGUSR1) < 0) {
+        printerror ("mask creation 2");
+    }
+    fd_set fd_input;
+    FD_ZERO (&fd_input);
+    FD_SET (fd_in_server, &fd_input);
+    printf ("waiting for start message from blackboard on file descriptor %d\n", fd_in_server);
+    if (pselect (fd_in_server + 1, &fd_input, NULL, NULL, NULL, &select_mask) < 0) {
+        printerror ("start wait select");
+    }
     if (read (fd_in_server, IO_msg, 160) < 0) {
         printerror ("wait read");
     }
+    //printf ("start message received, starting\n");
+    long int time_to_sleep = 20;
+    /*do {
+        time_to_sleep = sleep (time_to_sleep);
+    } while (time_to_sleep > 0);*/
+
     
     
     initscr(); 
@@ -192,9 +330,10 @@ int main (int argc, char ** argv) {
     struct timespec t;
     struct timespec end_time;
     struct timespec delta_time, rem_time;
-    long int time_to_sleep;
+    //long int time_to_sleep;
     long int nsec_diff;
     void * memcopy_res = NULL;
+    int reset = 0;
     
     wresize (stdscr, MAP_Y_SIZE, MAP_X_SIZE);
     resizeterm (MAP_Y_SIZE, MAP_X_SIZE);
@@ -211,11 +350,11 @@ int main (int argc, char ** argv) {
         init_pair (1, COLOR_BLUE, COLOR_BLACK); //first is characters, second is background
         init_pair (2, COLOR_WHITE, COLOR_BLACK);
         init_pair (3, COLOR_YELLOW, COLOR_BLACK);
+        init_pair (4, COLOR_GREEN, COLOR_BLACK);
 
     }
 
-    sigset_t select_mask, orig_mask;
-    sigaddset (&select_mask, SIGUSR1);
+    
     
 
     while (1) {
@@ -250,40 +389,75 @@ int main (int argc, char ** argv) {
             if (write (out_fd_server, IO_msg, strlen (IO_msg) + 1) < 0) {
                 printerror ("write");
             }
-            //read to wait for server acknowledgement (else risk of softlock on read)
+            //read to wait for server acknowledgement (else risk of permanent block on other requests' read)
             if (read (fd_in_server, IO_msg, 160) < 0) {
                 printerror ("BB reset response read");
             }
+            curr_targ = 0;
         }
 
+        /*update of the last first taret not yet reached*/
+        //printw ("requesting target to reach\n\r");
+        //refresh ();
+        request_current_target (out_fd_server, fd_in_server, &curr_targ, IO_msg, &reset, &select_mask);
+        //printw ("targget request  completed\n\r");
+        //refresh ();
+        //printerror ("test block 1");
+        if (curr_targ >= targ_placed) { //all targets reached, needed reset
+            if (sprintf (IO_msg, "%c", 'r') < 0) {
+                printerror ("sprintf");
+            }
+            if (write (out_fd_server, IO_msg, strlen (IO_msg) + 1) < 0) {
+                printerror ("write");
+            }
+            if (sprintf (IO_msg, "%d", 'z') < 0) 
+                printerror ("reset drone message encoding");
+            if (write (fd_drone, IO_msg, strlen (IO_msg) + 1) < 0) 
+                printerror ("reset drone write");
+
+            //read to wait for server acknowledgement (else risk of permanent block on other requests' read)
+            do {
+                if (syscall_res = read (fd_in_server, IO_msg, 160) < 0) {
+                    if (errno == EINTR) continue;
+                    printerror ("BB reset response read");
+                }
+            } while (syscall_res < 0);
+        
+            curr_targ = 0;
+            targ_placed = targ_num;
+        }
+        
+        
+
+        //printw ("requesting drobbne position\n\r");
+        //refresh();
+        read_drone_from_BB (fd_in_server, out_fd_server, &drone_pos, IO_msg, &t, &select_mask);
+        //printw ("requesting obsatcle position\n\r");
+        //refresh ();
+        request_obs (fd_in_server, out_fd_server, &obs_placed, obs_pos, IO_msg, tmp_str, &t, &select_mask);
+        //printw ("requesting target position\n\r");
+        //refresh ();
+        request_targ (fd_in_server, out_fd_server, &targ_placed, targ_pos, IO_msg, tmp_str, &t, &select_mask);
+        //printing stuff on terminal, blocking SIGUSR1 to avoid errors in the functions
+        if (sigprocmask (SIG_BLOCK, &select_mask, &orig_mask) < 0) {
+            printerror ("mask setting 1");
+        }
         syscall_res = clear ();
         if (syscall_res == ERR) {
             printf ("issues clearing\n\r");
             printerror ("addch clear");
         }
-
-        read_drone_from_BB (fd_in_server, out_fd_server, drone_pos, IO_msg, &t, &select_mask);
-
-        request_obs (fd_in_server, out_fd_server, &obs_placed, obs_pos, IO_msg, tmp_str, &t, &select_mask);
-
-        //adjustemnts to drone position to match with ncurses: positive going downward, maximum at 0
-        drone_pos [1] *= -1; 
-        drone_pos [1] += MAP_Y_SIZE;
-
-        //limitations to positions put just in case to still visualize the drone, but they should not be necessary with the wall forces implemented
-        if (drone_pos [0] < 0) drone_pos [0] = 0;
-        if (drone_pos [0] > MAP_X_SIZE) drone_pos [0] = MAP_X_SIZE;
-        if (drone_pos [1] < 0) drone_pos [1] = 0;
-        if (drone_pos [1] > MAP_Y_SIZE) drone_pos [1] = MAP_Y_SIZE;
-
-        //printing stuff on terminal, blocking SIGUSR1 to avoid errors in the functions
-        sigprocmask (SIG_SETMASK, &select_mask, &orig_mask);
         syscall_res = wresize (stdscr, MAP_Y_SIZE, MAP_X_SIZE); //makes sure the playground (visualized using box () below) is of the expected size
         if (syscall_res == ERR) {
             printf ("issues resizing\n\r");
             printerror ("resizing");
+        }/**/
+        syscall_res = resize_term (MAP_Y_SIZE, MAP_X_SIZE);
+        if (syscall_res == ERR) {
+            printerror ("terminal resize");
         }
-        
+        //printw ("all values requested\n\r");
+        //refresh ();
         //set character color to white for border, the re-set it back to default
         
 
@@ -291,20 +465,73 @@ int main (int argc, char ** argv) {
         box (stdscr, '|', '-');
         attroff (COLOR_PAIR (2));
 
-    
         attron (COLOR_PAIR (1));
-        syscall_res = mvprintw ((int) round (drone_pos [1]), (int) round (drone_pos [0]), "%c", DRONE_MARKER);
-        attroff (COLOR_PAIR (1));
-        attron (COLOR_PAIR (3));                
-        for (int i = 0; i < obs_placed; i++) {
-            syscall_res = mvprintw ((int) round (obs_pos [i] [1]), (int) round(obs_pos [i] [0]), "%c", OBSTACLE_MARKER);
+        while (mvprintw ((int) round (drone_pos.y), (int) round (drone_pos.x), "%c", DRONE_MARKER) < 0) {
+        //do {
+        //syscall_res = printw ("%lf %lf\n\r", drone_pos.x, drone_pos.y);
+        //if (syscall_res == ERR) {
+        /*    sprintf (IO_msg, "%lf %lf %s", drone_pos.x, drone_pos.y, "drone placement");
+            printerror (IO_msg);
+        }/**/
+        //} while (syscall_res < 0);
         }
+        //refresh ();
+        attroff (COLOR_PAIR (1));
+        attron (COLOR_PAIR (3)); 
+        //syscall_res = 10; 
+        /*if (mvprintw (MAP_Y_SIZE/2, MAP_X_SIZE/2, "%d\n", obs_placed) < 0)
+            printerror ("obs test 1\n"); 
+        for (int i = 0; i < obs_placed; i++) {
+            if (printw ("%lf %lf\n", obs_pos [i].x, MAP_Y_SIZE - obs_pos [i].y) < 0) {
+                sprintf (IO_msg, "%d %s", i ,"obs test 2");
+                printerror (IO_msg);
+            }
+        }
+        refresh ();
+        //sigprocmask (SIG_SETMASK, &orig_mask, NULL);
+        time_to_sleep = sleep (10);
+        while (time_to_sleep > 0) {
+            time_to_sleep = sleep (time_to_sleep);
+        }
+        //sigprocmask (SIG_SETMASK, &select_mask, &orig_mask);
+        */
+        for (int i = 0; i < obs_placed; i++) {
+            double x_pos = obs_pos [i].x;
+            double y_pos = obs_pos [i].y;
+            
+            //while (printw ("%lf %lf\n\r", obs_pos [i].x, obs_pos [i].y) < 0) {
+            while (mvprintw ((int) round (y_pos), (int) round (x_pos), "%c", OBSTACLE_MARKER) < 0) {
+            //if (syscall_res == ERR) { 
+                //printf ("%d\n", i);
+                /*sprintf (IO_msg, "%lf %lf, %d %s", obs_pos[i].y, y_pos, i, "obstacle placement");
+                //printf ("%lf %lf\n", obs_pos [i].y, y_pos);
+                printerror (IO_msg);/**/
+            }
+        }
+        //refresh ();
+        
         attroff (COLOR_PAIR (3));
+
+        attron (COLOR_PAIR (4));
+        //if (mvprintw (MAP_Y_SIZE/2, MAP_X_SIZE/2, "%d\n", targ_placed) < 0) {
+        for (int i = curr_targ; i < targ_placed; i++) {
+            while (mvprintw (round (targ_pos [i].y), round (targ_pos [i].x), "%s", Targ_marker [i]) < 0) {
+            //printw ("%lf %lf\n", targ_pos [i].x, MAP_Y_SIZE - targ_pos[i].y);
+                //printerror ("targget placement");
+            }
+        }
+        /*if (syscall_res < 0) 
+            printerror ("targget placement");
+        //attroff (COLOR_PAIR (4));/**/
+
+
         
         refresh ();
-        sigprocmask(SIG_SETMASK, &orig_mask, NULL);
+        if (sigprocmask(SIG_UNBLOCK, &select_mask, NULL) < 0) {
+            printerror ("mask unsetting");
+        }
 
-        count = (count + 1) % maxcount;
+        //count = (count + 1) % maxcount;
 
         usleep (SEC_TO_USEC / framerate);
 

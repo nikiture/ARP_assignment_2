@@ -30,7 +30,7 @@ int main (int argc, char ** argv) {
     int kons_pid;
     sscanf (argv [1], "%d", &kons_pid);
     fd_set log_check;
-    const int proc_numb = 4; //drone processor has index 0, map displayer 1, server 2, obstacle generator 3
+    const int proc_numb = 5; //drone processor has index 0, map displayer 1, server 2, obstacle generator 3, target generator 4
     pid_t ID_monitored [proc_numb], proc_id;
     time_t last_resp [proc_numb], resp_time;
     struct timeval wait_time;
@@ -91,14 +91,18 @@ int main (int argc, char ** argv) {
     }
 
     int syscall_res;
+    /*while (1) {
+        sleep (10);
+    }*/
 
     while (1) {
         printf ("watchdog here sending signal to all processes\n");
         for (int i = 0; i < proc_numb; i++) {
+            //if (i == 1) continue;
             kill (ID_monitored [i], SIGUSR1);
         }
         usleep (10000); //waits a bit to make sure that all processes have written
-       
+        
         wait_time.tv_sec = 0;
         wait_time.tv_usec = 5000;
         for (count = 0; count < proc_numb; count ++) { 
@@ -209,7 +213,7 @@ int main (int argc, char ** argv) {
 
         for (int i = 0; i < proc_numb; i++) {
             if (curr_time - last_resp [i] > max_time) {
-               
+                
                 printf ("watchdog here!\nno response from process %d (index %d) for more than %lf seconds\n", ID_monitored [i], i, max_time);
                 printf ("killing all processes\n");
                 sprintf (log_feedback, "%s%d%s%d%s%lf%s", "no response from process ", ID_monitored [i], " (index) ", i, " for more than ", max_time, " seconds");

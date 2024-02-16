@@ -1,4 +1,4 @@
-all: Master drone_dyn watchdog map_displayer BB_server obs_gen add_param
+all: Master drone_dyn watchdog map_displayer BB_server obs_gen targ_gen add_param
 
 clean: clean_binaries clean_logs
 
@@ -28,6 +28,9 @@ BB_server:
 
 obs_gen:
 	gcc obstacle_generator.c -o build/obstacle_generator
+
+targ_gen:
+	gcc target_generator.c -o build/target_generator
 
 add_param: 
 	cp parameters.txt build/parameters.txt

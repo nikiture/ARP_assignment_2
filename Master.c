@@ -21,29 +21,29 @@
 
 int main () {
 
-    int sh_kb_fd = shm_open (KB_ADDR, O_CREAT | O_RDWR, 0666);
-    if (sh_kb_fd < 0) perror ("shm kb open");
-
-    if (ftruncate (sh_kb_fd, sizeof (int)) < 0) perror ("ftruncate");
 
 
-    const int proc_numb = 4, proc_kons = 2;
+
+    const int proc_numb = 6, proc_kons = 2;
     int null_wait;
     int logfd [proc_numb];
 
-    for (int i = 0; i < proc_numb; i++) {
+    for (int i = 0; i < proc_numb - 1; i++) {
         mkfifo (log_file [i], 0666);
         logfd [i] = open (log_file [i], O_CREAT | O_RDWR, 0666);
-        if (logfd [i] < 0) perror ("log open");
+        if (logfd [i] < 0) {
+            perror ("log open");
+            printf ("pipe %d\n", i);
+        }
     }
     
     
-    int proc_pid [proc_numb], res;
+    int proc_pid [proc_numb];
 
     //need to create pipes between server and processes
-    int out_fds  [proc_numb - 1] [2];
-    int in_fds [proc_numb - 1] [2];
-    for (int i = 0; i < proc_numb - 1; i++) {
+    int out_fds  [proc_numb - 2] [2];
+    int in_fds [proc_numb - 2] [2];
+    for (int i = 0; i < proc_numb - 2; i++) {
         if (pipe (out_fds [i]) < 0) {
             perror ("pipe generation");
             exit (EXIT_FAILURE);
@@ -60,11 +60,11 @@ int main () {
         exit (EXIT_FAILURE);
     }
 
-    char server_fd [proc_numb - 1] [20];//10 is max number of digits for int
-    char process_fd [proc_numb - 1] [20]; //one string per process excluding watchdog
+    char server_fd [proc_numb - 2] [20];//10 is max number of digits for int
+    char process_fd [proc_numb - 2] [20]; //one string per process excluding watchdog
     char kb_din_fd [10];
     //in the server argument there is going to be a series of pairs of file directories, the first one is the request reception (read from)
-    for (int i = 0; i < proc_numb - 1; i++) {
+    for (int i = 0; i < proc_numb - 2; i++) {
         sprintf (server_fd [i], "%d %d", out_fds [i] [0], in_fds [i] [1]);
 
         sprintf (process_fd [i], "%d %d", in_fds [i] [0], out_fds [i] [1]);
@@ -110,7 +110,7 @@ int main () {
         exit (EXIT_FAILURE);
     }
     if (proc_pid [2] == 0) {
-        char * serverarglist [] = {"./BB_server", server_fd [0], server_fd [1], server_fd [2], NULL};
+        char * serverarglist [] = {"./BB_server", server_fd [0], server_fd [1], server_fd [2], server_fd [3], NULL};
         if (execvp (serverarglist [0], serverarglist) < 0) {
             perror ("exec 4");
             exit (EXIT_FAILURE);
@@ -128,8 +128,20 @@ int main () {
             exit (EXIT_FAILURE);
         }
     }
+    proc_pid [4] = fork ();
+    if (proc_pid [4] < 0) {
+        perror ("fork");
+        exit (EXIT_FAILURE);
+    }
+    if (proc_pid [4] == 0) {
+        char * targarglist [] = {"./target_generator", process_fd [3], NULL};
+        if (execvp (targarglist [0], targarglist) < 0) {
+            perror ("exec targ");
+            exit (EXIT_FAILURE);
+        }
+    }
 
-    if ((res = fork ()) < 0) {
+    if ((proc_pid [5] = fork ()) < 0) {
         perror ("fork");
         exit (EXIT_FAILURE);
     }
@@ -137,7 +149,7 @@ int main () {
 
     sprintf (kons_map_pid, "%d", proc_pid [1]);
 
-    if (res == 0) {
+    if (proc_pid [5] == 0) {
         char * konsargwtcdg [] = {"./watchdog", kons_map_pid, NULL}; //sending to watchdog also pids of konsole to properly close it in case of crash
 
         if (execvp (konsargwtcdg [0], konsargwtcdg) < 0) {
@@ -150,7 +162,7 @@ int main () {
     
     int term_child;
 
-    term_child = waitpid (res, &null_wait, 0);
+    term_child = waitpid (proc_pid [5], &null_wait, 0);
     if (term_child < 0) perror ("wait");
 
     printf ("the watchdog process has terminated\n"); 
